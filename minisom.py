@@ -1,10 +1,8 @@
 from math import sqrt
 
-from numpy import (array, unravel_index, nditer, linalg, random, subtract, max,
-                   power, exp, pi, zeros, ones, arange, outer, meshgrid, dot,
-                   logical_and, mean, std, cov, argsort, linspace, transpose,
-                   einsum, prod, nan, sqrt, hstack, diff, argmin, multiply)
+import numpy as np
 from numpy import sum as npsum
+from numpy import max as npmax
 from numpy.linalg import norm
 from collections import defaultdict, Counter
 from warnings import warn
@@ -13,6 +11,9 @@ from time import time
 from datetime import timedelta
 import pickle
 import os
+
+# spacial dist
+from scipy.spatial import distance, distance_matrix
 
 # for unit tests
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
@@ -32,7 +33,7 @@ def _build_iteration_indexes(data_len, num_iterations,
     If random_generator is not None, it must be an instalce
     of numpy.random.RandomState and it will be used
     to randomize the order of the samples."""
-    iterations = arange(num_iterations) % data_len
+    iterations = np.arange(num_iterations) % data_len
     if random_generator:
         random_generator.shuffle(iterations)
     if verbose:
@@ -65,7 +66,7 @@ def fast_norm(x):
 
     * faster than linalg.norm in case of 1-D arrays (numpy 1.9.2rc1).
     """
-    return sqrt(dot(x, x.T))
+    return sqrt(np.dot(x, x.T))
 
 
 def asymptotic_decay(learning_rate, t, max_iter):
@@ -153,24 +154,24 @@ class MiniSom(object):
         if sigma >= x or sigma >= y:
             warn('Warning: sigma is too high for the dimension of the map.')
 
-        self._random_generator = random.RandomState(random_seed)
+        self._random_generator = np.random.RandomState(random_seed)
 
         self._learning_rate = learning_rate
         self._sigma = sigma
         self._input_len = input_len
         # random initialization
         self._weights = self._random_generator.rand(x, y, input_len)*2-1
-        self._weights /= linalg.norm(self._weights, axis=-1, keepdims=True)
+        self._weights /= norm(self._weights, axis=-1, keepdims=True)
 
-        self._activation_map = zeros((x, y))
-        self._neigx = arange(x)
-        self._neigy = arange(y)  # used to evaluate the neighborhood function
+        self._activation_map = np.zeros((x, y))
+        self._neigx = np.arange(x)
+        self._neigy = np.arange(y)  # used to evaluate the neighborhood function
 
         if topology not in ['hexagonal', 'rectangular']:
             msg = '%s not supported only hexagonal and rectangular available'
             raise ValueError(msg % topology)
         self.topology = topology
-        self._xx, self._yy = meshgrid(self._neigx, self._neigy)
+        self._xx, self._yy = np.meshgrid(self._neigx, self._neigy)
         self._xx = self._xx.astype(float)
         self._yy = self._yy.astype(float)
         if topology == 'hexagonal':
@@ -245,26 +246,26 @@ class MiniSom(object):
 
     def _gaussian(self, c, sigma):
         """Returns a Gaussian centered in c."""
-        d = 2*pi*sigma*sigma
-        ax = exp(-power(self._xx-self._xx.T[c], 2)/d)
-        ay = exp(-power(self._yy-self._yy.T[c], 2)/d)
+        d = 2 * np.pi * sigma * sigma
+        ax = np.exp(-np.power(self._xx-self._xx.T[c], 2)/d)
+        ay = np.exp(-np.power(self._yy-self._yy.T[c], 2)/d)
         return (ax * ay).T  # the external product gives a matrix
 
     def _mexican_hat(self, c, sigma):
         """Mexican hat centered in c."""
-        p = power(self._xx-self._xx.T[c], 2) + power(self._yy-self._yy.T[c], 2)
-        d = 2*pi*sigma*sigma
-        return (exp(-p/d)*(1-2/d*p)).T
+        p = np.power(self._xx-self._xx.T[c], 2) + np.power(self._yy-self._yy.T[c], 2)
+        d = 2 * np.pi * sigma * sigma
+        return (np.exp(-p/d)*(1-2/d*p)).T
 
     def _bubble(self, c, sigma):
         """Constant function centered in c with spread sigma.
         sigma should be an odd value.
         """
-        ax = logical_and(self._neigx > c[0]-sigma,
+        ax = np.logical_and(self._neigx > c[0]-sigma,
                          self._neigx < c[0]+sigma)
-        ay = logical_and(self._neigy > c[1]-sigma,
+        ay = np.logical_and(self._neigy > c[1]-sigma,
                          self._neigy < c[1]+sigma)
-        return outer(ax, ay)*1.
+        return np.outer(ax, ay)*1.
 
     def _triangle(self, c, sigma):
         """Triangular function centered in c with spread sigma."""
@@ -272,21 +273,21 @@ class MiniSom(object):
         triangle_y = (-abs(c[1] - self._neigy)) + sigma
         triangle_x[triangle_x < 0] = 0.
         triangle_y[triangle_y < 0] = 0.
-        return outer(triangle_x, triangle_y)
+        return np.outer(triangle_x, triangle_y)
 
     def _cosine_distance(self, x, w):
         num = (w * x).sum(axis=2)
-        denum = multiply(linalg.norm(w, axis=2), linalg.norm(x))
+        denum = np.multiply(norm(w, axis=2), norm(x))
         return 1 - num / (denum+1e-8)
 
     def _euclidean_distance(self, x, w):
-        return linalg.norm(subtract(x, w), axis=-1)
+        return norm(np.subtract(x, w), axis=-1)
 
     def _manhattan_distance(self, x, w):
-        return linalg.norm(subtract(x, w), ord=1, axis=-1)
+        return norm(np.subtract(x, w), ord=1, axis=-1)
 
     def _chebyshev_distance(self, x, w):
-        return max(subtract(x, w), axis=-1)
+        return npmax(np.subtract(x, w), axis=-1)
 
     def _check_iteration_number(self, num_iteration):
         if num_iteration < 1:
@@ -303,7 +304,7 @@ class MiniSom(object):
     def winner(self, x):
         """Computes the coordinates of the winning neuron for the sample x."""
         self._activate(x)
-        return unravel_index(self._activation_map.argmin(),
+        return np.unravel_index(self._activation_map.argmin(),
                              self._activation_map.shape)
 
     def update(self, x, win, t, max_iteration):
@@ -326,21 +327,21 @@ class MiniSom(object):
         # improves the performances
         g = self.neighborhood(win, sig)*eta
         # w_new = eta * neighborhood_function * (x-w)
-        self._weights += einsum('ij, ijk->ijk', g, x-self._weights)
+        self._weights += np.einsum('ij, ijk->ijk', g, x-self._weights)
 
     def quantization(self, data):
         """Assigns a code book (weights vector of the winning neuron)
         to each sample in data."""
         self._check_input_len(data)
-        winners_coords = argmin(self._distance_from_weights(data), axis=1)
-        return self._weights[unravel_index(winners_coords,
+        winners_coords = np.argmin(self._distance_from_weights(data), axis=1)
+        return self._weights[np.unravel_index(winners_coords,
                                            self._weights.shape[:2])]
 
     def random_weights_init(self, data):
         """Initializes the weights of the SOM
         picking random samples from data."""
         self._check_input_len(data)
-        it = nditer(self._activation_map, flags=['multi_index'])
+        it = np.nditer(self._activation_map, flags=['multi_index'])
         while not it.finished:
             rand_i = self._random_generator.randint(len(data))
             self._weights[it.multi_index] = data[rand_i]
@@ -363,10 +364,10 @@ class MiniSom(object):
             msg = 'PCA initialization inappropriate:' + \
                   'One of the dimensions of the map is 1.'
             warn(msg)
-        pc_length, pc = linalg.eig(cov(transpose(data)))
-        pc_order = argsort(-pc_length)
-        for i, c1 in enumerate(linspace(-1, 1, len(self._neigx))):
-            for j, c2 in enumerate(linspace(-1, 1, len(self._neigy))):
+        pc_length, pc = norm.eig(np.cov(np.transpose(data)))
+        pc_order = np.argsort(-pc_length)
+        for i, c1 in enumerate(np.linspace(-1, 1, len(self._neigx))):
+            for j, c2 in enumerate(np.linspace(-1, 1, len(self._neigy))):
                 self._weights[i, j] = c1*pc[pc_order[0]] + c2*pc[pc_order[1]]
 
     def train(self, data, num_iteration, random_order=False, verbose=False):
@@ -439,7 +440,7 @@ class MiniSom(object):
         Each cell is the normalised sum of the distances between
         a neuron and its neighbours. Note that this method uses
         the euclidean distance."""
-        um = zeros((self._weights.shape[0],
+        um = np.zeros((self._weights.shape[0],
                     self._weights.shape[1],
                     8))  # 2 spots more for hexagonal topology
 
@@ -469,21 +470,32 @@ class MiniSom(object):
             that the neuron i,j have been winner.
         """
         self._check_input_len(data)
-        a = zeros((self._weights.shape[0], self._weights.shape[1]))
+        a = np.zeros((self._weights.shape[0], self._weights.shape[1]))
         for x in data:
             a[self.winner(x)] += 1
         return a
 
     def _distance_from_weights(self, data):
-        """Returns a matrix d where d[i,j] is the euclidean distance between
-        data[i] and the j-th weight.
+        """Returns a matrix d where d[i,j] 
+            is the euclidean distance between
+            data[i] and the j-th weight.
         """
-        input_data = array(data)
+        input_data = np.array(data)
         weights_flat = self._weights.reshape(-1, self._weights.shape[2])
-        input_data_sq = power(input_data, 2).sum(axis=1, keepdims=True)
-        weights_flat_sq = power(weights_flat, 2).sum(axis=1, keepdims=True)
-        cross_term = dot(input_data, weights_flat.T)
-        return sqrt(-2 * cross_term + input_data_sq + weights_flat_sq.T)
+        # previous
+        # input_data_sq = np.power(input_data, 2).sum(axis=1, keepdims=True)
+        # weights_flat_sq = np.power(weights_flat, 2).sum(axis=1, keepdims=True)
+        # cross_term = np.dot(input_data, weights_flat.T)
+        # return sqrt(-2 * cross_term + input_data_sq + weights_flat_sq.T)
+        ###
+        # but to be simple
+        # P = np.add.outer(npsum(input_data**2, axis=1), 
+        #                  npsum(weights_flat**2, axis=1))
+        # N = np.dot(input_data, weights_flat.T)
+        # pDist = np.sqrt(P - 2*N)
+        ###
+        # my last
+        return distance_matrix(input_data, weights_flat)
 
     def quantization_error(self, data):
         """Returns the quantization error computed as the average
@@ -506,19 +518,19 @@ class MiniSom(object):
         if self.topology == 'hexagonal':
             msg = 'Topographic error not implemented for hexagonal topology.'
             raise NotImplementedError(msg)
-        total_neurons = prod(self._activation_map.shape)
+        total_neurons = np.prod(self._activation_map.shape)
         if total_neurons == 1:
             warn('The topographic error is not defined for a 1-by-1 map.')
-            return nan
+            return np.nan
 
         t = 1.42
         # b2mu: best 2 matching units
-        b2mu_inds = argsort(self._distance_from_weights(data), axis=1)[:, :2]
-        b2my_xy = unravel_index(b2mu_inds, self._weights.shape[:2])
+        b2mu_inds = np.argsort(self._distance_from_weights(data), axis=1)[:, :2]
+        b2my_xy = np.unravel_index(b2mu_inds, self._weights.shape[:2])
         b2mu_x, b2mu_y = b2my_xy[0], b2my_xy[1]
-        dxdy = hstack([diff(b2mu_x), diff(b2mu_y)])
-        distance = norm(dxdy, axis=1)
-        return (distance > t).mean()
+        dxdy = np.hstack([np.diff(b2mu_x), np.diff(b2mu_y)])
+        dist = norm(dxdy, axis=1)
+        return (dist > t).mean()
 
     def win_map(self, data, return_indices=False):
         """Returns a dictionary wm where wm[(i,j)] is a list with:
@@ -562,8 +574,8 @@ class TestMinisom(unittest.TestCase):
         for i in range(5):
             for j in range(5):
                 # checking weights normalization
-                assert_almost_equal(1.0, linalg.norm(self.som._weights[i, j]))
-        self.som._weights = zeros((5, 5, 1))  # fake weights
+                assert_almost_equal(1.0, norm(self.som._weights[i, j]))
+        self.som._weights = np.zeros((5, 5, 1))  # fake weights
         self.som._weights[2, 3] = 5.0
         self.som._weights[1, 1] = 2.0
 
@@ -571,32 +583,32 @@ class TestMinisom(unittest.TestCase):
         assert self.som._decay_function(1., 2., 3.) == 1./(1.+2./(3./2))
 
     def test_fast_norm(self):
-        assert fast_norm(array([1, 3])) == sqrt(1+9)
+        assert fast_norm(np.array([1, 3])) == sqrt(1+9)
 
     def test_euclidean_distance(self):
-        x = zeros((1, 2))
-        w = ones((2, 2, 2))
+        x = np.zeros((1, 2))
+        w = np.ones((2, 2, 2))
         d = self.som._euclidean_distance(x, w)
         assert_array_almost_equal(d, [[1.41421356, 1.41421356],
                                       [1.41421356, 1.41421356]])
 
     def test_cosine_distance(self):
-        x = zeros((1, 2))
-        w = ones((2, 2, 2))
+        x = np.zeros((1, 2))
+        w = np.ones((2, 2, 2))
         d = self.som._cosine_distance(x, w)
         assert_array_almost_equal(d, [[1., 1.],
                                       [1., 1.]])
 
     def test_manhattan_distance(self):
-        x = zeros((1, 2))
-        w = ones((2, 2, 2))
+        x = np.zeros((1, 2))
+        w = np.ones((2, 2, 2))
         d = self.som._manhattan_distance(x, w)
         assert_array_almost_equal(d, [[2., 2.],
                                       [2., 2.]])
 
     def test_chebyshev_distance(self):
-        x = array([1, 3])
-        w = ones((2, 2, 2))
+        x = np.array([1, 3])
+        w = np.ones((2, 2, 2))
         d = self.som._chebyshev_distance(x, w)
         assert_array_almost_equal(d, [[2., 2.],
                                       [2., 2.]])
@@ -606,12 +618,12 @@ class TestMinisom(unittest.TestCase):
             self.som.train_batch([[1, 2]], 1)
 
         with self.assertRaises(ValueError):
-            self.som.random_weights_init(array([[1, 2]]))
+            self.som.random_weights_init(np.array([[1, 2]]))
 
         with self.assertRaises(ValueError):
-            self.som._check_input_len(array([[1, 2]]))
+            self.som._check_input_len(np.array([[1, 2]]))
 
-        self.som._check_input_len(array([[1]]))
+        self.som._check_input_len(np.array([[1]]))
         self.som._check_input_len([[1]])
 
     def test_unavailable_neigh_function(self):
@@ -635,12 +647,12 @@ class TestMinisom(unittest.TestCase):
     def test_bubble(self):
         bubble = self.som._bubble((2, 2), 1)
         assert bubble[2, 2] == 1
-        assert sum(sum(bubble)) == 1
+        assert npsum(npsum(bubble)) == 1
 
     def test_triangle(self):
         bubble = self.som._triangle((2, 2), 1)
         assert bubble[2, 2] == 1
-        assert sum(sum(bubble)) == 1
+        assert npsum(npsum(bubble)) == 1
 
     def test_win_map(self):
         winners = self.som.win_map([[5.0], [2.0]])
@@ -668,7 +680,7 @@ class TestMinisom(unittest.TestCase):
         assert self.som.activate(5.0).argmin() == 13.0  # unravel(13) = (2,3)
 
     def test_distance_from_weights(self):
-        data = arange(-5, 5).reshape(-1, 1)
+        data = np.arange(-5, 5).reshape(-1, 1)
         weights = self.som._weights.reshape(-1, self.som._weights.shape[2])
         distances = self.som._distance_from_weights(data)
         for i in range(len(data)):
@@ -696,7 +708,7 @@ class TestMinisom(unittest.TestCase):
         self.som.topology = 'rectangular'
 
     def test_quantization(self):
-        q = self.som.quantization(array([[4], [2]]))
+        q = self.som.quantization(np.array([[4], [2]]))
         assert q[0] == 5.0
         assert q[1] == 2.0
 
@@ -705,7 +717,7 @@ class TestMinisom(unittest.TestCase):
         som2 = MiniSom(5, 5, 2, sigma=1.0, learning_rate=0.5, random_seed=1)
         # same initialization
         assert_array_almost_equal(som1._weights, som2._weights)
-        data = random.rand(100, 2)
+        data = np.random.rand(100, 2)
         som1 = MiniSom(5, 5, 2, sigma=1.0, learning_rate=0.5, random_seed=1)
         som1.train_random(data, 10)
         som2 = MiniSom(5, 5, 2, sigma=1.0, learning_rate=0.5, random_seed=1)
@@ -715,49 +727,49 @@ class TestMinisom(unittest.TestCase):
 
     def test_train_batch(self):
         som = MiniSom(5, 5, 2, sigma=1.0, learning_rate=0.5, random_seed=1)
-        data = array([[4, 2], [3, 1]])
+        data = np.array([[4, 2], [3, 1]])
         q1 = som.quantization_error(data)
         som.train(data, 10)
         assert q1 > som.quantization_error(data)
 
-        data = array([[1, 5], [6, 7]])
+        data = np.array([[1, 5], [6, 7]])
         q1 = som.quantization_error(data)
         som.train_batch(data, 10, verbose=True)
         assert q1 > som.quantization_error(data)
 
     def test_train_random(self):
         som = MiniSom(5, 5, 2, sigma=1.0, learning_rate=0.5, random_seed=1)
-        data = array([[4, 2], [3, 1]])
+        data = np.array([[4, 2], [3, 1]])
         q1 = som.quantization_error(data)
         som.train(data, 10, random_order=True)
         assert q1 > som.quantization_error(data)
 
-        data = array([[1, 5], [6, 7]])
+        data = np.array([[1, 5], [6, 7]])
         q1 = som.quantization_error(data)
         som.train_random(data, 10, verbose=True)
         assert q1 > som.quantization_error(data)
 
     def test_random_weights_init(self):
         som = MiniSom(2, 2, 2, random_seed=1)
-        som.random_weights_init(array([[1.0, .0]]))
+        som.random_weights_init(np.array([[1.0, .0]]))
         for w in som._weights:
-            assert_array_equal(w[0], array([1.0, .0]))
+            assert_array_equal(w[0], np.array([1.0, .0]))
 
     def test_pca_weights_init(self):
         som = MiniSom(2, 2, 2)
-        som.pca_weights_init(array([[1.,  0.], [0., 1.], [1., 0.], [0., 1.]]))
-        expected = array([[[0., -1.41421356], [-1.41421356, 0.]],
+        som.pca_weights_init(np.array([[1.,  0.], [0., 1.], [1., 0.], [0., 1.]]))
+        expected = np.array([[[0., -1.41421356], [-1.41421356, 0.]],
                           [[1.41421356, 0.], [0., 1.41421356]]])
         assert_array_almost_equal(som._weights, expected)
 
     def test_distance_map(self):
         som = MiniSom(2, 2, 2, random_seed=1)
-        som._weights = array([[[1.,  0.], [0., 1.]], [[1., 0.], [0., 1.]]])
-        assert_array_equal(som.distance_map(), array([[1., 1.], [1., 1.]]))
+        som._weights = np.array([[[1.,  0.], [0., 1.]], [[1., 0.], [0., 1.]]])
+        assert_array_equal(som.distance_map(), np.array([[1., 1.], [1., 1.]]))
 
         som = MiniSom(2, 2, 2, topology='hexagonal', random_seed=1)
-        som._weights = array([[[1.,  0.], [0., 1.]], [[1., 0.], [0., 1.]]])
-        assert_array_equal(som.distance_map(), array([[.5, 1.], [1., .5]]))
+        som._weights = np.array([[[1.,  0.], [0., 1.]], [[1., 0.], [0., 1.]]])
+        assert_array_equal(som.distance_map(), np.array([[.5, 1.], [1., .5]]))
 
     def test_pickling(self):
         with open('som.p', 'wb') as outfile:
