@@ -13,7 +13,7 @@ import pickle
 import os
 
 # spacial dist
-from scipy.spatial import distance, distance_matrix
+from scipy.spatial import distance_matrix
 
 # for unit tests
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
